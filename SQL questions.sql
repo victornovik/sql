@@ -204,3 +204,42 @@ SET
         WHEN 2 THEN (SELECT lastName FROM Names WHERE id = 1)
     END
 WHERE id IN (1, 2);
+
+
+-- Выведите идентификаторы преподавателей, у которых есть хотя бы одно занятие в каждом одиннадцатом классе.
+-- Всего 3 разных одиннадцатых класса
+SELECT s.teacher AS teacher
+FROM schedule s INNER JOIN class c ON s.class = c.id AND c.name LIKE '11%'
+GROUP BY s.teacher
+HAVING COUNT(DISTINCT c.id) = 3
+
+
+-- Необходимо получить имена студентов и общую сумму стоимости всех курсов, которые они посещают, 
+-- но только для тех студентов, у которых общая стоимость курсов превышает 10 000
+SELECT s.name, SUM(c.price)
+FROM students s 
+INNER JOIN students_courses sc ON s.id = sc.student_id
+INNER JOIN courses c ON sc.course_id = c.id
+GROUP BY s.name
+HAVING SUM(c.price) > 10000
+
+
+-- Выведите для каждого пользователя самое первое (по времени транзакции) наименование товара, которое он заказал
+-- Решение #1 через CTE
+WITH earliest_ts AS (
+    SELECT user_id, min(transaction_ts) AS min_ts
+    FROM transactions t
+    GROUP BY user_id
+)
+
+SELECT t.user_id, t.item
+FROM transactions t
+INNER JOIN earliest_ts ON t.user_id = earliest_ts.user_id AND t.transaction_ts = earliest_ts.min_ts
+
+-- Решение #2 через оконку
+SELECT 
+    DISTINCT user_id,
+    -- transaction_ts,
+    -- item,
+    FIRST_VALUE(item) OVER (partition by user_id ORDER BY transaction_ts ASC) item
+FROM transactions t
