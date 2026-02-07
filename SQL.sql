@@ -493,7 +493,6 @@ ORDER BY c.sid_long, c.user_id
 -- В конце каждого месяца компания выдает премию для своих курьеров, средняя скорость доставки за прошедший месяц которых больше средней скорости среди всех курьеров. 
 -- Необходимо узнать сколько курьеров получили премию за июль 2024.
 -- Важно! Средняя скорость рассчитывается как суммарное расстояние за период делить на суммарное время доставок.
--- Поле в результирующей таблице: rewarded_couriers
 WITH avg_velocity_for_july AS (
     SELECT SUM(distance) / SUM(travel_time) AS avg_vel
     FROM deliveries d
@@ -577,36 +576,224 @@ select a.item_id, address, price from actual_addresses a join actual_prices p on
 
 
 -- Classic GROUP BY
-SELECT Country, Region, SUM(sales) AS TotalSales
-FROM Sales
-GROUP BY Country, Region;
+SELECT region, product, SUM(sales_amount) AS total_sales
+FROM sales_data
+GROUP BY region, product;
 
 -- Groups with subtotals and totals
-SELECT Country, Region, SUM(sales) AS TotalSales
-FROM Sales
-GROUP BY ROLLUP (Country, Region);
+SELECT region, product, SUM(sales_amount) AS total_sales
+FROM sales_data
+GROUP BY ROLLUP(region, product);
 
 -- Groups for all combinations of Country and Region
-SELECT Country, Region, SUM(sales) AS TotalSales
-FROM Sales
-GROUP BY CUBE (Country, Region);
+SELECT region, product, SUM(sales_amount) AS total_sales
+FROM sales_data
+GROUP BY CUBE (region, product);
 
--- Returns the union of the ROLLUP and CUBE results for Country and Region
-SELECT Country, Region, SUM(Sales) AS TotalSales
-FROM Sales
-GROUP BY GROUPING SETS ( ROLLUP (Country, Region), CUBE (Country, Region) );
+-- Returns the union of the ROLLUP and CUBE 
+SELECT region, product, SUM(sales_amount) AS total_sales
+FROM sales_data
+GROUP BY GROUPING SETS (ROLLUP (region, product), CUBE (region, product));
+
+CREATE TABLE sales (
+    region VARCHAR(50),
+    product VARCHAR(50),
+    sales_amount NUMERIC
+);
+
+INSERT INTO sales_data (region, product, sales_amount) VALUES
+('North', 'Product A', 100),
+('North', 'Product A', 120),
+('North', 'Product B', 150),
+('North', 'Product B', 250),
+('South', 'Product A', 120),
+('South', 'Product B', 180),
+('South', 'Product B', 120),
+('East', 'Product A', 90),
+('East', 'Product B', 130),
+('West', 'Product A', 110),
+('West', 'Product A', 190),
+('West', 'Product B', 160);
 
 
---CREATE TABLE Sales ( 
---Country VARCHAR(50), 
---Region VARCHAR(50), 
---Sales INT );
+-- Дана таблица subscriptions с историей всех подписочных периодов для каждого клиента.
+-- Напишите SQL-запрос, который преобразует историю подписок в хронологический список событий.
+-- Пример исходных данных:
+| customer_id | membership_start_date | membership_end_date | membership_status |
+|-------------|-----------------------|---------------------|-------------------|
+| 115         | 2020-01-01            | 2020-02-15          | Free              |
+| 115         | 2020-02-15            | 2020-03-15          | Paid              |
+| 115         | 2020-03-15            | 2020-04-01          | Non-member        |
+| 115         | 2020-04-01            | 2020-10-01          | Paid              |
 
---INSERT INTO sales VALUES (N'Canada', N'Alberta', 100);
---INSERT INTO sales VALUES (N'Canada', N'Columbia', 200);
---INSERT INTO sales VALUES (N'Canada', N'Columbia', 300);
---INSERT INTO sales VALUES (N'Canada', N'Columbia', 300);
---INSERT INTO sales VALUES (N'Canada', N'Alberta', 100);
---INSERT INTO sales VALUES (N'United States', N'Montana', 100);
---INSERT INTO sales VALUES (N'Columbia', N'Columbia', 300);
---INSERT INTO sales VALUES (N'Columbia', N'Center', 150);
+-- Основные правила переходов:
+Free → Paid: 'Convert'
+Paid → Free: 'ReverseConvert'
+Paid → Non-member: 'Cancel'
+Free → Non-member: 'Cancel'
+Non-member → Paid: 'ColdStart'
+Non-member → Free: 'WarmStart'
+Paid → Paid: 'Renewal'
+Free → Free: 'Renewal'
+
+-- Пример результата:
+| customer_id | change_date | event      |
+|-------------|-------------|------------|
+| 115         | 2020-01-01  | WarmStart  |
+| 115         | 2020-02-15  | Convert    |
+| 115         | 2020-03-15  | Cancel     |
+| 115         | 2020-04-01  | ColdStart  |
+| 115         | 2020-10-01  | Cancel     |
+
+-- Поля в результирующей таблице: customer_id, change_date, event.
+WITH transitions AS (
+    SELECT 'Free' AS src, 'Paid' AS dst, 'Convert' AS event
+    UNION
+    SELECT 'Paid', 'Free', 'ReverseConvert'
+    UNION 
+    SELECT 'Paid', 'Non-member', 'Cancel'
+    UNION 
+    SELECT 'Free', 'Non-member', 'Cancel'
+    UNION 
+    SELECT 'Non-member', 'Paid', 'ColdStart'
+    UNION 
+    SELECT 'Non-member', 'Free', 'WarmStart'
+    UNION 
+    SELECT 'Non-member', 'Non-member', 'Non-member'
+    UNION 
+    SELECT 'Paid', 'Paid', 'Renewal'
+    UNION 
+    SELECT 'Free', 'Free', 'Renewal' 
+)
+SELECT COALESCE(s1.customer_id, s2.customer_id) customer_id, COALESCE(s1.membership_end_date, s2.membership_start_date) change_date, t.event 
+FROM subscriptions s1
+FULL OUTER JOIN subscriptions s2 ON s1.customer_id = s2.customer_id AND s1.membership_end_date = s2.membership_start_date
+INNER JOIN transitions t ON COALESCE(s1.membership_status, 'Non-member') = t.src AND COALESCE(s2.membership_status, 'Non-member') = t.dst
+WHERE event != 'Non-member'
+ORDER BY customer_id, change_date;
+
+--SELECT * 
+--FROM subscriptions s1
+--ORDER BY s1.customer_id, s1.membership_start_date;
+
+
+-- Решение #2 через оконку LAG()
+with subscriptions_ex as (
+  select *, row_number() over(partition by customer_id order by membership_end_date desc) as rnum from subscriptions
+), history as (
+    select *,
+    coalesce(lag(membership_status) over(partition by customer_id order by membership_start_date), 'Non-member') as prev_status
+    from subscriptions
+    UNION ALL
+    select customer_id, membership_end_date as membership_start_date, null as membership_end_date, 'Non-member' as membership_status,
+    membership_status as prev_status
+    from subscriptions_ex
+    where rnum = 1
+), events as (
+  select customer_id, membership_start_date as change_date,-- prev_status, membership_status,
+  case
+    when prev_status = 'Free' and membership_status = 'Paid' then 'Convert'
+    when prev_status = 'Paid' and membership_status = 'Free' then 'ReverseConvert'
+    when prev_status = 'Paid' and membership_status = 'Non-member' then 'Cancel'
+    when prev_status = 'Free' and membership_status = 'Non-member' then 'Cancel'
+    when prev_status = 'Non-member' and membership_status = 'Paid' then 'ColdStart'
+    when prev_status = 'Non-member' and membership_status = 'Free' then 'WarmStart'
+    when prev_status = 'Paid' and membership_status = 'Paid' then 'Renewal'
+    when prev_status = 'Free' and membership_status = 'Free' then 'Renewal'
+  else null end as event    
+  from history
+)
+select * from events
+where event is not null
+order by customer_id, change_date
+
+
+-- CORRELATED SUBQUERIES
+
+
+-- Вывести в порядке убывания популярности доменные имена, используемые пользователями для электронной почты. 
+-- Полученный результат необходимо дополнительно отсортировать по возрастанию названий доменных имён.
+SELECT SUBSTRING (email, STRPOS(email, '@') + 1) AS domain, COUNT(*) AS count
+FROM users
+GROUP BY domain
+ORDER BY count DESC, domain ASC
+
+
+-- Найдите отделы, совокупная заработная плата сотрудников которых является максимальной.
+WITH max_salary AS (
+    SELECT SUM(salary) AS salary
+    FROM employees
+    GROUP BY department_id
+    ORDER BY salary DESC
+    LIMIT 1
+)
+SELECT department_id
+FROM employees
+GROUP BY department_id
+HAVING SUM(salary) IN (SELECT salary FROM max_salary)
+
+
+-- Есть таблица products с товарами и их значениями на определенную дату.
+-- Оказалось, что начиная с какой-то даты по некоторым товарам начали приходить пустые значения.
+-- Нужно написать запрос, в котором все NULL в поле value будут заполнены последним известным значением value для данного товара (при отсутствии предыдущих значений поле остается NULL).
+WITH cte AS (
+    SELECT sku, date, value,
+       COUNT(value) OVER (PARTITION BY sku ORDER BY date) AS last_not_null_seq
+    FROM products
+)
+SELECT sku, date, 
+    FIRST_VALUE(value) OVER (PARTITION BY sku, last_not_null_seq ORDER BY date) AS filled_value
+FROM cte
+ORDER BY sku, date;
+
+-- Решение #2
+with ordered as (
+  select *, row_number() over(PARTITION BY sku order by date desc) as rnum from products
+  where value is not null
+)
+select p.sku, p.date, coalesce(p.value, v.value) as filled_value from products p
+left join ordered v on p.sku = v.sku and v.rnum = 1
+order by sku, date
+
+
+
+-- Дана таблица user_logs с данными о действиях пользователей.
+-- Необходимо для каждого пользователя выбрать последнюю запись по полю dttm.
+WITH last_action AS (
+    SELECT user_id, MAX(dttm) max_dttm
+    FROM user_logs
+    GROUP BY user_id
+)
+SELECT DISTINCT ul.user_id, ul.dttm, ul.action
+FROM user_logs ul INNER JOIN last_action la ON ul.user_id = la.user_id AND ul.dttm = la.max_dttm
+ORDER BY ul.user_id
+
+
+-- Даны таблицы:
+-- calls - Звонки клиентов.
+-- orders - Заказы.
+-- goods - Справочник товаров.
+-- order_goods - Позиции заказов.
+-- Необходимо вывести топ-5 брендов по выручке в январе 2025 года.
+SELECT g.brand, g.category, SUM(og.good_price) AS revenue
+FROM orders o 
+INNER JOIN order_goods og ON o.id = og.order_id AND date_part('year', o.order_created_at) = 2025 AND date_part('month', o.order_created_at) = 1
+INNER JOIN goods g ON og.good_id = g.good_id
+GROUP BY g.brand, g.category
+ORDER BY revenue DESC
+LIMIT 5
+
+
+-- Вывести идентификаторы всех владельцев комнат, что размещены на сервисе бронирования жилья и сумму, которую они заработали. 
+-- Если заработок отсутствует, то в результирующей таблице должно быть 0.
+SELECT rooms.owner_id, SUM(COALESCE(reservations.total, 0)) AS total_earn
+FROM rooms LEFT JOIN reservations ON rooms.id = reservations.room_id
+GROUP BY rooms.owner_id
+ORDER BY owner_id
+
+
+-- Напишите SQL-запрос, который выводит уникальный список всех продуктов и их семейств, проданных в каждой стране за первые 10 недель 2020 года.
+SELECT DISTINCT p.country, p.product_name, p.product_family
+FROM products p INNER JOIN boxes_shipped b ON p.product_id = b.fk_product_id
+AND b.delivery_week BETWEEN '2020-W01' AND '2020-W10'
+ORDER BY p.country, p.product_name
