@@ -19,5 +19,3 @@ SELECT TickerSymbol, TradeDate, ClosePrice,
 	COUNT(ClosePrice) OVER() AS Rows
 FROM StockHistory
 ORDER BY TickerSymbol, TradeDate;
-
-SELECT @@VERSION;

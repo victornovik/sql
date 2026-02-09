@@ -114,18 +114,6 @@ select *
 from cte left join cte as c
 on cte.ClientId = c.ClientId
 
--- Использование IN для поиска в множестве по нескольким значениям
-CREATE TABLE users (userId int NOT NULL, depId int NOT NULL, salary int NOT NULL);
-INSERT INTO users (userId, depId, salary) 
-VALUES (1, 1, 100), (2, 1, 100), (3, 1, 300), (4, 2, 1), (5, 2, 2), (6, 3, 10), (7, 3, 5);
-
-select * from users
-where (salary, depId) in
-(
-	select min(salary) as salary, depId
-	from users
-	group by depId
-)
 
 /* 
 TRUNCATE TABLE can be rolled back within a transaction in PostgreSQL and MS SQL, but TRUNCATE TABLE commits transaction in Oracle.
@@ -164,11 +152,8 @@ SELECT @EndTime=GETDATE()
 SELECT DATEDIFF(ms,@StartTime,@EndTime) AS [Duration in millisecs]
 
 --------------------------------------------------------------------------
-
 set statistics time on
-
 -- Write Your Query in SSMS
-
 set statistics time off
 --------------------------------------------------------------------------
 
@@ -197,28 +182,9 @@ SET
 WHERE id IN (1, 2);
 
 
--- У вас есть база данных, которая отслеживает проекты и сотрудников, назначенных на эти проекты. 
--- Вам необходимо проанализировать состав команд проектов, чтобы оценить средний уровень опыта.
--- Округлите значения average_years до 2 знаков после запятой.
-SELECT project_id, ROUND(AVG(e.experience_years), 2) AS average_years
-FROM project p INNER JOIN employee e
-ON p.employee_id = e.employee_id
-GROUP BY project_id
-
-
--- Найти пользователей, которые совершили заказы на товары из категории 'Electronics', с указанием общей суммы заказов по этой категории.
-SELECT u.id AS user_id, u.name AS user_name, SUM(o.quantity * p.price) AS total_order_value
-FROM users u 
-INNER JOIN orders o on u.id = o.user_id
-INNER JOIN products p on o.product_id = p.id
-INNER JOIN categories c on p.category_id = c.id and c.name = 'Electronics'
-GROUP BY u.id
-
-
 -- Выведите список имён сотрудников, получающих большую заработную плату, чем у непосредственного руководителя
 SELECT e.name AS name
-FROM employees e INNER JOIN employees chiefs
-ON e.chief_id = chiefs.id
+FROM employees e INNER JOIN employees chiefs ON e.chief_id = chiefs.id
 WHERE e.salary > chiefs.salary
 
 
@@ -230,18 +196,7 @@ GROUP BY s.teacher
 HAVING COUNT(DISTINCT c.id) = 3
 
 
--- Необходимо получить имена студентов и общую сумму стоимости всех курсов, которые они посещают, 
--- но только для тех студентов, у которых общая стоимость курсов превышает 10 000
-SELECT s.name, SUM(c.price)
-FROM students s 
-INNER JOIN students_courses sc ON s.id = sc.student_id
-INNER JOIN courses c ON sc.course_id = c.id
-GROUP BY s.name
-HAVING SUM(c.price) > 10000
-
-
 -- Выведите для каждого пользователя первое наименование, которое он заказал (первое по времени транзакции).
--- Решение #1 через CTE
 WITH earliest_ts AS (
     SELECT user_id, MIN(transaction_ts) AS min_ts
     FROM transactions t
@@ -251,15 +206,9 @@ SELECT t.user_id, t.item
 FROM transactions t
 INNER JOIN earliest_ts ON t.user_id = earliest_ts.user_id AND t.transaction_ts = earliest_ts.min_ts
 
-
--- Решение #2 через оконку
-SELECT 
-    DISTINCT user_id,
-    -- transaction_ts,
-    -- item,
-    FIRST_VALUE(item) OVER (partition by user_id ORDER BY transaction_ts ASC) item
-FROM transactions t
-
+-- Решение #2
+SELECT DISTINCT user_id, FIRST_VALUE(item) OVER (PARTITION BY user_id ORDER BY transaction_ts ASC) item
+FROM transactions
 
 -- Решение #3 через вложенный запрос
 SELECT user_id, item
@@ -274,11 +223,8 @@ WHERE transaction_ts IN (
 -- Предполагается, что если кто-то зарегистрировался с email, который уже есть в базе, то это бот.
 -- Т.е. реальный пользователь тот, кто первым зарегистрировался с данным email.
 SELECT id
-FROM
-    (SELECT 
-        id,
-        email,
-        row_number() OVER (partition by email order by id asc) as seq_num
+FROM (
+	SELECT id, email, ROW_NUMBER() OVER (PARTITION BY email ORDER BY id) AS seq_num
     FROM users)
 WHERE seq_num > 1
 
@@ -294,14 +240,14 @@ SELECT c.name, c.price
 FROM currency c
 INNER JOIN latest_price lp ON c.name = lp.name AND c.date = lp.latest_date
 
-
--- Дана таблица orders с информацией о заказах.
--- Необходимо получить список идентификаторов магазинов (shop_id), которые выполнили более 50 заказов за сентябрь.
-SELECT shop_id
-FROM orders
-WHERE EXTRACT(MONTH FROM created_at) = 9
-GROUP BY shop_id
-HAVING COUNT(*) > 50
+-- Решение #2
+WITH latest_price AS (
+    SELECT name, date, LAST_VALUE(price) OVER (PARTITION BY name ORDER BY date RANGE BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)
+    FROM currency
+)
+SELECT name, MAX(last_value) AS price
+FROM latest_price
+GROUP BY name
 
 
 -- Выведите id сотрудников с разницей в заработной плате в пределах 5000 рублей.
@@ -310,36 +256,6 @@ FROM employees lhs, employees rhs
 WHERE rhs.salary BETWEEN (lhs.salary - 5000) AND (lhs.salary + 5000)
 AND lhs.id < rhs.id
 ORDER BY lhs.id
-
-
--- Дано: две таблицы: region — справочник регионов. town — список городов.
--- Задача: Вывести список только тех регионов, в которых есть хотя бы один город, основанный до 1900 года (включительно), с указанием общего количества таких городов в каждом регионе.
--- Поля в результирующей таблице: title, old_towns_count.
-SELECT r.title AS title, COUNT(t.title) AS old_towns_count
-FROM region r INNER JOIN town t ON r.id = t.region_id AND t.year_ < 1901
-GROUP BY r.title
-ORDER BY old_towns_count DESC, title ASC
-
-
--- Дано: две таблицы: units — справочник подразделений компании. employees — список сотрудников.
--- Задача: Напишите SQL-запрос, который выведет минимальную и максимальную зарплату по каждому отделу, исключая уволенных сотрудников.
--- Поля в результирующей таблице: unit_id, min_salary, max_salary.
-SELECT u.id AS unit_id, MIN(e.salary) AS min_salary, MAX(e.salary) AS max_salary
-FROM units u INNER JOIN employees e ON u.id = e.unit_id AND e.fired = 0
-GROUP BY u.id
-ORDER BY u.id
-
-
--- Выведите уникальные комбинации пользователя и id товара для всех покупок, совершенных пользователями до того, как их забанили. 
--- Результат отсортируйте в порядке возрастания сначала по имени пользователя, потом по SKU.
--- Если пользователь не был забанен, учитываются все его покупки.
-SELECT u.id AS user_id, u.first_name, u.last_name, p.sku
-FROM users u 
-LEFT JOIN ban_list b ON u.id = b.user_id
-INNER JOIN purchases p ON u.id = p.user_id
-WHERE b.date_from IS NULL OR b.date_from > p.date
-ORDER BY u.first_name, p.sku
-
 
 -- Есть две таблицы: 
 -- таблица продаж (sales), в которой содержится информация о дате продажи, магазине, артикуле, который продали, и количестве проданных штук данного артикула
@@ -379,7 +295,7 @@ WHERE (i.item_id, i.update_date) IN (
     GROUP BY item_id
 )
 
--- Решение #2 через CTE и оконки
+-- Решение #2
 with prices as (
    select *
    from orders o
@@ -413,23 +329,22 @@ select avg(age) as average_age from customers where customer_key in (
 
 -- Необходимо написать SQL-запрос, который найдет в таблице purchases транзакции, продублированные в результате технической ошибки.
 SELECT *
-FROM purchases p
-WHERE (p.datetime, p.amount, p.user_id) IN
+FROM purchases
+WHERE (datetime, amount, user_id) IN
 (
-    SELECT p.datetime, p.amount, p.user_id
-    FROM purchases p
-    GROUP BY p.datetime, p.amount, p.user_id
+    SELECT datetime, amount, user_id
+    FROM purchases
+    GROUP BY datetime, amount, user_id
     HAVING COUNT(*) > 1
 )
-
-
--- Напишите SQL-запрос, который определит самый часто используемый промокод.
--- Необходимо вывести название этого промокода и количество раз, которое он был использован в заказах.
-SELECT p.name, COUNT(*) as usage_count
-FROM orders o INNER JOIN promocodes p ON o.promocode_id = p.promocode_id
-GROUP BY p.name
-ORDER BY usage_count DESC
-LIMIT 1
+-- Решение #2
+WITH dups AS (
+    SELECT datetime, amount, user_id, ROW_NUMBER() OVER (PARTITION BY datetime, amount, user_id) as rnum
+    FROM purchases
+)
+SELECT *
+FROM purchases
+WHERE (datetime, amount, user_id) IN (SELECT datetime, amount, user_id FROM dups WHERE rnum > 1)
 
 
 -- Напишите SQL-запрос, который выведет уникальные имена пользователей, которые покупали товары из категории Книги, 
@@ -535,7 +450,7 @@ SELECT la.item_id, la.address, lp.price
 FROM last_address la INNER JOIN last_price lp ON la.item_id = lp.item_id
 
 
--- Решение #2 через оконные функции
+-- Решение #2
 with addresses as (
   select item_id, address, row_number() over(PARTITION BY item_id order by actual_date desc) as rnum
   from s_item_address
@@ -551,6 +466,7 @@ actual_prices as (
   select item_id, price from prices where rnum = 1    
 )
 select a.item_id, address, price from actual_addresses a join actual_prices p on a.item_id = p.item_id
+
 
 -- Решение #3 через МАХ
 with actual_addresses as (
@@ -677,7 +593,7 @@ ORDER BY customer_id, change_date;
 --ORDER BY s1.customer_id, s1.membership_start_date;
 
 
--- Решение #2 через оконку LAG()
+-- Решение #2
 with subscriptions_ex as (
   select *, row_number() over(partition by customer_id order by membership_end_date desc) as rnum from subscriptions
 ), history as (
@@ -708,9 +624,6 @@ where event is not null
 order by customer_id, change_date
 
 
--- CORRELATED SUBQUERIES
-
-
 -- Вывести в порядке убывания популярности доменные имена, используемые пользователями для электронной почты. 
 -- Полученный результат необходимо дополнительно отсортировать по возрастанию названий доменных имён.
 SELECT SUBSTRING (email, STRPOS(email, '@') + 1) AS domain, COUNT(*) AS count
@@ -738,11 +651,11 @@ HAVING SUM(salary) IN (SELECT salary FROM max_salary)
 -- Нужно написать запрос, в котором все NULL в поле value будут заполнены последним известным значением value для данного товара (при отсутствии предыдущих значений поле остается NULL).
 WITH cte AS (
     SELECT sku, date, value,
+	-- COUNT не учитывает NULL values
        COUNT(value) OVER (PARTITION BY sku ORDER BY date) AS last_not_null_seq
     FROM products
 )
-SELECT sku, date, 
-    FIRST_VALUE(value) OVER (PARTITION BY sku, last_not_null_seq ORDER BY date) AS filled_value
+SELECT sku, date, FIRST_VALUE(value) OVER (PARTITION BY sku, last_not_null_seq ORDER BY date) AS filled_value
 FROM cte
 ORDER BY sku, date;
 
@@ -755,6 +668,32 @@ select p.sku, p.date, coalesce(p.value, v.value) as filled_value from products p
 left join ordered v on p.sku = v.sku and v.rnum = 1
 order by sku, date
 
+-- Решение #3
+WITH cte AS (
+    SELECT sku, date, value,
+       MAX(CASE WHEN value IS NOT NULL THEN date END) OVER(PARTITION BY sku ORDER BY date) AS MaxDate
+    FROM products
+)
+SELECT sku, date, MAX(value) OVER(PARTITION BY sku, MaxDate) AS filled_value
+FROM cte
+ORDER BY sku, date;
+
+
+-- Дана таблица user_logs с данными о действиях пользователей.
+-- Определите, есть ли дубли по колонкам user_id и dttm.  Если есть, выведите эти user_id и dttm.
+SELECT user_id, dttm
+FROM user_logs
+GROUP BY user_id, dttm
+HAVING COUNT(*) > 1
+
+-- Решение #2
+WITH dups AS (
+    SELECT user_id, dttm, ROW_NUMBER() OVER (PARTITION BY user_id, dttm) as rnum
+    FROM user_logs
+)
+SELECT DISTINCT user_id, dttm
+FROM dups
+WHERE rnum > 1
 
 
 -- Дана таблица user_logs с данными о действиях пользователей.
@@ -767,21 +706,6 @@ WITH last_action AS (
 SELECT DISTINCT ul.user_id, ul.dttm, ul.action
 FROM user_logs ul INNER JOIN last_action la ON ul.user_id = la.user_id AND ul.dttm = la.max_dttm
 ORDER BY ul.user_id
-
-
--- Даны таблицы:
--- calls - Звонки клиентов.
--- orders - Заказы.
--- goods - Справочник товаров.
--- order_goods - Позиции заказов.
--- Необходимо вывести топ-5 брендов по выручке в январе 2025 года.
-SELECT g.brand, g.category, SUM(og.good_price) AS revenue
-FROM orders o 
-INNER JOIN order_goods og ON o.id = og.order_id AND date_part('year', o.order_created_at) = 2025 AND date_part('month', o.order_created_at) = 1
-INNER JOIN goods g ON og.good_id = g.good_id
-GROUP BY g.brand, g.category
-ORDER BY revenue DESC
-LIMIT 5
 
 
 -- Вывести идентификаторы всех владельцев комнат, что размещены на сервисе бронирования жилья и сумму, которую они заработали. 
@@ -797,3 +721,14 @@ SELECT DISTINCT p.country, p.product_name, p.product_family
 FROM products p INNER JOIN boxes_shipped b ON p.product_id = b.fk_product_id
 AND b.delivery_week BETWEEN '2020-W01' AND '2020-W10'
 ORDER BY p.country, p.product_name
+
+
+-- Выведите 10 капитанов (first_pilot_id), совершивших наибольшее количество грузовых рейсов (cargo_flg = 1) в 2022 году.
+-- Отсортируйте результат по убыванию числа полётов, а затем в порядке возрастания по имени пилота.
+SELECT pi.name
+FROM pilots pi 
+INNER JOIN flights fl ON pi.pilot_id = fl.first_pilot_id AND extract (YEAR FROM fl.flight_dt) = 2022
+INNER JOIN planes pl ON fl.plane_id = pl.plane_id AND pl.cargo_flg = 1
+GROUP BY pi.name
+ORDER BY COUNT(*) DESC, pi.name
+LIMIT 10
