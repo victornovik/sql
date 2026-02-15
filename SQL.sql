@@ -242,7 +242,8 @@ INNER JOIN latest_price lp ON c.name = lp.name AND c.date = lp.latest_date
 
 -- Решение #2
 WITH latest_price AS (
-    SELECT name, date, LAST_VALUE(price) OVER (PARTITION BY name ORDER BY date RANGE BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)
+    SELECT name, date, 
+		LAST_VALUE(price) OVER (PARTITION BY name ORDER BY date RANGE BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)
     FROM currency
 )
 SELECT name, MAX(last_value) AS price
@@ -727,8 +728,45 @@ ORDER BY p.country, p.product_name
 -- Отсортируйте результат по убыванию числа полётов, а затем в порядке возрастания по имени пилота.
 SELECT pi.name
 FROM pilots pi 
-INNER JOIN flights fl ON pi.pilot_id = fl.first_pilot_id AND extract (YEAR FROM fl.flight_dt) = 2022
+INNER JOIN flights fl ON pi.pilot_id = fl.first_pilot_id AND EXTRACT(YEAR FROM fl.flight_dt) = 2022
 INNER JOIN planes pl ON fl.plane_id = pl.plane_id AND pl.cargo_flg = 1
 GROUP BY pi.name
 ORDER BY COUNT(*) DESC, pi.name
 LIMIT 10
+
+
+-- Посчитайте долю прибыли на каждый день от прибыли того же клиента в предыдущий день.
+-- Формула: Доля = Сумма прибыли за х день/Сумма прибыли за x-1 день.
+-- Вывести: дату, клиента, прибыль, долю. Отсортируйте результат по возрастанию даты, а затем по id клиента.
+-- Поля в результирующей таблице: event_date, client_id, sum_profit, profit_ratio.
+-- Округлите значения profit_ratio до 2 знаков после запятой.
+-- Если у клиента отсутствует запись о прибыли за предыдущий день, эти строки исключаются из результата.
+SELECT *
+FROM
+(
+    SELECT event_date, client_id, sum_profit,
+        ROUND(CAST(sum_profit AS decimal) / LAG(sum_profit) OVER(PARTITION BY client_id ORDER BY event_date), 2) AS profit_ratio
+    FROM client_profit
+)
+WHERE profit_ratio IS NOT NULL
+ORDER BY event_date, client_id
+
+
+-- В компании замеряется такой показатель, как "30-дневная активная база". 
+-- Для любого дня - это число клиентов за предыдущие 30 дней. 
+-- Например, для 2022-01-01 - это число уникальных клиентов, совершивших визит за 30 дней до 2022-01-01, включая 2022-01-01. 
+-- Для 2022-01-02 - это число уникальных клиентов, совершивших визит за 30 дней до 2022-01-02, включая 2022-01-02 и т.д.
+-- Посчитайте подневную динамику 30-дневной активной базы по каждому городу, отсортируйте по городу и дате по возрастанию.
+-- Поля в результирующей таблице: cityname, date, active_base.
+WITH group1 AS (
+    SELECT cityname, date, COUNT(DISTINCT clientid) unique_clients
+    FROM receipts
+    GROUP BY cityname, date
+    ORDER BY cityname, date
+)
+SELECT cityname, date, 
+    SUM(unique_clients) OVER(PARTITION BY cityname ORDER BY date ROWS BETWEEN 30 PRECEDING AND CURRENT ROW) AS active_base
+FROM group1
+
+
+-- FILTER(WHERE date BETWEEN date - INTERVAL '30 days' AND date)

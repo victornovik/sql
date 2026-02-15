@@ -1,0 +1,9 @@
+--6-4.1 Using FIRST_VALUE and LAST_VALUE
+SELECT CustomerID, SalesOrderID, TotalDue,
+    FIRST_VALUE(TotalDue) OVER(PARTITION BY CustomerID ORDER BY SalesOrderID) AS FirstOrderAmt,
+    LAST_VALUE(TotalDue) OVER(PARTITION BY CustomerID ORDER BY SalesOrderID) AS LastOrderAmt_INCORRECT,
+    LAST_VALUE(TotalDue) OVER(PARTITION BY CustomerID ORDER BY SalesOrderID ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) AS LastOrderAmt_CORRECT
+FROM Sales.SalesOrderHeader
+ORDER BY CustomerID, SalesOrderID;
+
+

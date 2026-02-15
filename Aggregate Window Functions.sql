@@ -1,4 +1,3 @@
--- Window aggregate examples
 SELECT CustomerID, SalesOrderID,
 	 FORMAT(MIN(OrderDate) OVER(PARTITION BY CustomerID),'yyyy-MM-dd') AS FirstOrderDate,
 	 FORMAT(MAX(OrderDate) OVER(PARTITION BY CustomerID),'yyyy-MM-dd') AS LastOrderDate,
@@ -57,6 +56,10 @@ GROUP BY YEAR(OrderDate), MONTH(OrderDate);
 
 -- Compare the logical difference between ROWS and RANGE
 -- Pay attention to lines 7, 8 and 9
+-- The window for ROWS in this case starts with the first row and includes all rows up to the current row sorted by the ORDER BY. 
+-- The window for RANGE is all rows starting with the first row and up to any rows WITH THE SAME value as the current row’s ORDER BY expression. 
+-- When the window for row 7 is determined, RANGE looks at not just the position but also the value. 
+-- The value for the OrderDate for row 8 is the same as the value for row 7, so row 8 is included in the window for row 7 when we use RANGE.
 SELECT CustomerID, CAST(OrderDate AS DATE) AS OrderDate, SalesOrderID, TotalDue,
     SUM(TotalDue) OVER(ORDER BY OrderDate ROWS UNBOUNDED PRECEDING) AS RunningTotalRows,
     SUM(TotalDue) OVER(ORDER BY OrderDate RANGE UNBOUNDED PRECEDING) AS RunningTotalRange
@@ -108,3 +111,10 @@ WITH NewSubs AS (
 SELECT NewSubs.TheMonth, NewSubs.PeopleJoined, Cancelled.PeopleLeft,
     SUM(NewSubs.PeopleJoined - ISNULL(Cancelled.PeopleLeft, 0)) OVER(ORDER BY NewSubs.TheMonth) AS ActiveSubscriptions
 FROM NewSubs LEFT JOIN Cancelled ON NewSubs.TheMonth = Cancelled.TheMonth;
+
+
+-- If FILTER is specified then window function accepts only rows filtered by FILTER (WHERE).
+SELECT 
+    count(*) AS unfiltered,
+    count(*) FILTER (WHERE i < 5) AS filtered
+FROM generate_series(1, 10) AS s(i);
