@@ -5,5 +5,3 @@ SELECT CustomerID, SalesOrderID, TotalDue,
     LAST_VALUE(TotalDue) OVER(PARTITION BY CustomerID ORDER BY SalesOrderID ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) AS LastOrderAmt_CORRECT
 FROM Sales.SalesOrderHeader
 ORDER BY CustomerID, SalesOrderID;
-
-

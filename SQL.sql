@@ -758,15 +758,11 @@ ORDER BY event_date, client_id
 -- Для 2022-01-02 - это число уникальных клиентов, совершивших визит за 30 дней до 2022-01-02, включая 2022-01-02 и т.д.
 -- Посчитайте подневную динамику 30-дневной активной базы по каждому городу, отсортируйте по городу и дате по возрастанию.
 -- Поля в результирующей таблице: cityname, date, active_base.
-WITH group1 AS (
-    SELECT cityname, date, COUNT(DISTINCT clientid) unique_clients
-    FROM receipts
-    GROUP BY cityname, date
-    ORDER BY cityname, date
+with citydates as (
+  select distinct cityname, date from receipts
 )
-SELECT cityname, date, 
-    SUM(unique_clients) OVER(PARTITION BY cityname ORDER BY date ROWS BETWEEN 30 PRECEDING AND CURRENT ROW) AS active_base
-FROM group1
-
-
--- FILTER(WHERE date BETWEEN date - INTERVAL '30 days' AND date)
+select cd.cityname, cd.date, count(distinct r.clientid) as active_base
+from citydates cd
+join receipts r on r.cityname = cd.cityname and r.date between (cd.date - 29) and cd.date
+group by cd.cityname, cd.date
+order by cityname, date

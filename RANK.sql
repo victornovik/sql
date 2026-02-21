@@ -16,8 +16,7 @@ INSERT INTO #Islands(ID) VALUES(101),(102),(103),(106),(108),(108),(109),(110),(
 SELECT ID FROM #Islands;
 
 -- Subtract the RowNum from the ID
-SELECT ID, ROW_NUMBER() OVER(ORDER BY ID) AS RowNum,
- ID - ROW_NUMBER() OVER(ORDER BY ID) AS Diff
+SELECT ID, ROW_NUMBER() OVER(ORDER BY ID) AS RowNum, ID - ROW_NUMBER() OVER(ORDER BY ID) AS Diff
 FROM #Islands;
 
 -- Use DENSE_RANK since there are duplicate IDs

@@ -22,10 +22,10 @@ SELECT Col1, Col2 FROM #dupes;
 
 -- Use ROW_NUMBER to find the first four orders
 WITH Orders AS (
-	 SELECT MONTH(OrderDate) AS OrderMonth, OrderDate, SalesOrderID, TotalDue, 
-	 ROW_NUMBER() OVER(PARTITION BY MONTH(OrderDate) ORDER BY SalesOrderID) AS RowNumber
-	 FROM Sales.SalesOrderHeader
-	 WHERE OrderDate >= '2013-01-01' AND OrderDate < '2014-01-01')
+	SELECT MONTH(OrderDate) AS OrderMonth, OrderDate, SalesOrderID, TotalDue, 
+	ROW_NUMBER() OVER(PARTITION BY MONTH(OrderDate) ORDER BY SalesOrderID) AS RowNumber
+	FROM Sales.SalesOrderHeader
+	WHERE OrderDate >= '2013-01-01' AND OrderDate < '2014-01-01')
 SELECT *
 FROM Orders
 WHERE RowNumber <= 4
@@ -40,8 +40,6 @@ INSERT INTO #Numbers(Number)
 SELECT TOP(1000000) ROW_NUMBER() OVER(ORDER BY a.object_id)
 FROM sys.objects a CROSS JOIN sys.objects b CROSS JOIN sys.objects c;
 
--- SELECT * FROM #Numbers;
-
 --2-12.1 Find the earliest date and the number of days
 DECLARE @Min DATE, @DayCount INT;
 SELECT @Min = MIN(OrderDate),
@@ -50,9 +48,9 @@ FROM Sales.SalesOrderHeader;
 
 --2-12.2 Change numbers to dates and then find dates with no orders
 WITH Dates AS (
-        SELECT TOP(@DayCount) DATEADD(DAY,Number,@Min) AS OrderDate
-        FROM #Numbers AS N
-        ORDER BY Number
+	SELECT TOP(@DayCount) DATEADD(DAY,Number,@Min) AS OrderDate
+	FROM #Numbers AS N
+	ORDER BY Number
 )
 SELECT Dates.OrderDate
 FROM Dates LEFT JOIN Sales.SalesOrderHeader SOH ON Dates.OrderDate = SOH.OrderDate

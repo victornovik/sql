@@ -1,11 +1,27 @@
 SELECT CustomerID, SalesOrderID,
-	 FORMAT(MIN(OrderDate) OVER(PARTITION BY CustomerID),'yyyy-MM-dd') AS FirstOrderDate,
-	 FORMAT(MAX(OrderDate) OVER(PARTITION BY CustomerID),'yyyy-MM-dd') AS LastOrderDate,
+	 FORMAT(MIN(OrderDate) OVER(PARTITION BY CustomerID), 'yyyy-MM-dd') AS FirstOrderDate,
+	 FORMAT(MAX(OrderDate) OVER(PARTITION BY CustomerID), 'yyyy-MM-dd') AS LastOrderDate,
 	 COUNT(*) OVER(PARTITION BY CustomerID) OrderCount,
-	 FORMAT(SUM(TotalDue) OVER(PARTITION BY CustomerID),'C') AS TotalAmount
+	 FORMAT(SUM(TotalDue) OVER(PARTITION BY CustomerID), 'C') AS TotalAmount
 FROM Sales.SalesOrderHeader
 ORDER BY CustomerID, SalesOrderID;
 
+
+-- The same query as above but with single named window in multiple OVER clauses
+SELECT CustomerID, SalesOrderID,
+	 FORMAT(MIN(OrderDate) OVER CustomerWin, 'yyyy-MM-dd') AS FirstOrderDate,
+	 FORMAT(MAX(OrderDate) OVER CustomerWin, 'yyyy-MM-dd') AS LastOrderDate,
+	 COUNT(*) OVER CustomerWin OrderCount,
+	 FORMAT(SUM(TotalDue) OVER CustomerWin, 'C') AS TotalAmount
+FROM Sales.SalesOrderHeader
+WINDOW CustomerWin AS (PARTITION BY CustomerID)
+ORDER BY CustomerID, SalesOrderID;
+
+
+ALTER DATABASE AdventureWorks2014
+SET COMPATIBILITY_LEVEL = 160;
+
+select @@VERSION
 
 -- Calculate the percent of sales
 SELECT P.ProductID,
@@ -25,6 +41,7 @@ ORDER BY PercentOfSales DESC;
 SELECT CustomerID, SalesOrderID, CAST(OrderDate AS DATE) AS OrderDate, TotalDue, 
 	SUM(TotalDue) OVER(PARTITION BY CustomerID ORDER BY SalesOrderID) AS RunningTotal
 FROM Sales.SalesOrderHeader;
+
 
 -- Running and reverse running totals
 SELECT CustomerID, CAST(OrderDate AS DATE) AS OrderDate, SalesOrderID,TotalDue,
@@ -114,7 +131,6 @@ FROM NewSubs LEFT JOIN Cancelled ON NewSubs.TheMonth = Cancelled.TheMonth;
 
 
 -- If FILTER is specified then window function accepts only rows filtered by FILTER (WHERE).
-SELECT 
-    count(*) AS unfiltered,
-    count(*) FILTER (WHERE i < 5) AS filtered
+SELECT COUNT(*) AS unfiltered,
+    COUNT(*) FILTER (WHERE i < 5) AS filtered
 FROM generate_series(1, 10) AS s(i);
