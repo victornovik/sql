@@ -7,6 +7,45 @@ FROM Sales.SalesOrderHeader
 ORDER BY CustomerID, SalesOrderID;
 
 
+-- Add a window aggregate to an aggregate query
+-- Column 'Sales.SalesOrderHeader.TotalDue' is invalid in the select list because it is not contained in either an aggregate function or the GROUP BY clause.
+SELECT CustomerID, 
+    SUM(TotalDue) AS CustomerTotal,
+    SUM(TotalDue) OVER() AS GrandTotal
+FROM Sales.SalesOrderHeader
+GROUP BY CustomerID;
+
+-- Add a window aggregate to an aggregate query
+-- Add SUM(SUM())
+SELECT CustomerID, 
+    SUM(TotalDue) AS CustomerTotal,
+    SUM(SUM(TotalDue)) OVER() AS GrandTotal
+FROM Sales.SalesOrderHeader
+GROUP BY CustomerID;
+
+-- The same query using a CTE
+WITH Sales AS (
+   SELECT CustomerID, SUM(TotalDue) AS CustomerTotal
+   FROM Sales.SalesOrderHeader
+   GROUP BY CustomerID)
+SELECT CustomerID, CustomerTotal, SUM(CustomerTotal) OVER() AS GrandTotal
+FROM Sales;
+
+
+-- Window aggregate to multiple group by
+SELECT CustomerID, YEAR(OrderDate) AS OrderYear, 
+    SUM(TotalDue) AS CustTotalForYear,
+    SUM(SUM(TotalDue)) OVER(PARTITION BY CustomerID) AS CustomerTotal
+FROM Sales.SalesOrderHeader
+GROUP BY CustomerID, YEAR(OrderDate)
+ORDER BY CustomerID, OrderYear;
+
+
+-- Named windows are supported from SQL Server 2022. We have to uplift the compatibility level of the database
+SELECT @@VERSION
+ALTER DATABASE AdventureWorks2014
+SET COMPATIBILITY_LEVEL = 160;
+
 -- The same query as above but with single named window in multiple OVER clauses
 SELECT CustomerID, SalesOrderID,
 	 FORMAT(MIN(OrderDate) OVER CustomerWin, 'yyyy-MM-dd') AS FirstOrderDate,
@@ -18,20 +57,15 @@ WINDOW CustomerWin AS (PARTITION BY CustomerID)
 ORDER BY CustomerID, SalesOrderID;
 
 
-ALTER DATABASE AdventureWorks2014
-SET COMPATIBILITY_LEVEL = 160;
-
-select @@VERSION
-
 -- Calculate the percent of sales
 SELECT P.ProductID,
-	 FORMAT(SUM(OrderQty * UnitPrice),'C') AS ProductSales,
-	 FORMAT(SUM(SUM(OrderQty * UnitPrice)) OVER(),'C') AS TotalSales,
+	 FORMAT(SUM(OrderQty * UnitPrice), 'C') AS ProductSales,
+	 FORMAT(SUM(SUM(OrderQty * UnitPrice)) OVER(), 'C') AS TotalSales,
 	 FORMAT(SUM(OrderQty * UnitPrice) / SUM(SUM(OrderQty * UnitPrice)) OVER(), 'P') AS PercentOfSales
 FROM Sales.SalesOrderDetail AS SOD
-JOIN Production.Product AS P ON SOD.ProductID = P.ProductID
-JOIN Production.ProductSubcategory AS SUB ON P.ProductSubcategoryID = SUB.ProductSubcategoryID
-JOIN Production.ProductCategory AS CAT ON SUB.ProductCategoryID = CAT.ProductCategoryID
+    JOIN Production.Product AS P ON SOD.ProductID = P.ProductID
+    JOIN Production.ProductSubcategory AS SUB ON P.ProductSubcategoryID = SUB.ProductSubcategoryID
+    JOIN Production.ProductCategory AS CAT ON SUB.ProductCategoryID = CAT.ProductCategoryID
 WHERE CAT.Name = 'Bikes'
 GROUP BY P.ProductID
 ORDER BY PercentOfSales DESC;

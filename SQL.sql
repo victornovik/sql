@@ -207,20 +207,11 @@ FROM transactions t
 INNER JOIN earliest_ts ON t.user_id = earliest_ts.user_id AND t.transaction_ts = earliest_ts.min_ts
 
 -- Решение #2
-SELECT DISTINCT user_id, FIRST_VALUE(item) OVER (PARTITION BY user_id ORDER BY transaction_ts ASC) item
+SELECT DISTINCT user_id, FIRST_VALUE(item) OVER (PARTITION BY user_id ORDER BY transaction_ts) item
 FROM transactions
 
--- Решение #3 через вложенный запрос
-SELECT user_id, item
-FROM transactions
-WHERE transaction_ts IN (
-		SELECT MIN(transaction_ts)
-		FROM transactions
-		GROUP BY user_id)
 
-
--- Вывести id тех пользователей, которые считаются ботами. 
--- Предполагается, что если кто-то зарегистрировался с email, который уже есть в базе, то это бот.
+-- Вывести id тех пользователей, которые считаются ботами. Предполагается, что если кто-то зарегистрировался с email, который уже есть в базе, то это бот.
 -- Т.е. реальный пользователь тот, кто первым зарегистрировался с данным email.
 SELECT id
 FROM (
@@ -237,18 +228,12 @@ WITH latest_price AS (
     GROUP BY name
 )
 SELECT c.name, c.price
-FROM currency c
-INNER JOIN latest_price lp ON c.name = lp.name AND c.date = lp.latest_date
+FROM currency c INNER JOIN latest_price lp ON c.name = lp.name AND c.date = lp.latest_date
 
 -- Решение #2
-WITH latest_price AS (
-    SELECT name, date, 
-		LAST_VALUE(price) OVER (PARTITION BY name ORDER BY date RANGE BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)
-    FROM currency
-)
-SELECT name, MAX(last_value) AS price
-FROM latest_price
-GROUP BY name
+SELECT DISTINCT name, 
+    LAST_VALUE(price) OVER (PARTITION BY name ORDER BY date RANGE BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS price
+FROM currency
 
 
 -- Выведите id сотрудников с разницей в заработной плате в пределах 5000 рублей.
@@ -338,6 +323,7 @@ WHERE (datetime, amount, user_id) IN
     GROUP BY datetime, amount, user_id
     HAVING COUNT(*) > 1
 )
+
 -- Решение #2
 WITH dups AS (
     SELECT datetime, amount, user_id, ROW_NUMBER() OVER (PARTITION BY datetime, amount, user_id) as rnum
@@ -409,20 +395,29 @@ ORDER BY c.sid_long, c.user_id
 -- В конце каждого месяца компания выдает премию для своих курьеров, средняя скорость доставки за прошедший месяц которых больше средней скорости среди всех курьеров. 
 -- Необходимо узнать сколько курьеров получили премию за июль 2024.
 -- Важно! Средняя скорость рассчитывается как суммарное расстояние за период делить на суммарное время доставок.
-WITH avg_velocity_for_july AS (
-    SELECT SUM(distance) / SUM(travel_time) AS avg_vel
+WITH avg_july AS (
+    SELECT courier_id, SUM(distance) / SUM(travel_time) AS avg_cur
     FROM deliveries d
     WHERE date_part('year', d.date) = 2024 AND date_part('month', d.date) = 7
     GROUP BY courier_id
-), best_courier_ids AS (
-    SELECT courier_id
-    FROM deliveries d
-    WHERE date_part('year', d.date) = 2024 AND date_part('month', d.date) = 7
-    GROUP BY courier_id
-    HAVING SUM(distance) / SUM(travel_time) > (SELECT AVG(avg_vel) FROM avg_velocity_for_july)
 )
 SELECT COUNT(courier_id) AS rewarded_couriers
-FROM best_courier_ids
+FROM avg_july
+WHERE avg_cur > (SELECT AVG(avg_cur) FROM avg_july)
+
+-- Решение #2
+WITH avg_july AS (
+    SELECT courier_id, 
+        SUM(distance) / SUM(travel_time) AS avg_cur,
+        AVG(SUM(distance) / SUM(travel_time)) OVER () AS avg_all
+    FROM deliveries
+    WHERE date_part('year', date) = 2024 AND date_part('month', date) = 7
+    GROUP BY courier_id
+)
+SELECT COUNT(courier_id) AS rewarded_couriers
+FROM avg_july
+WHERE avg_cur > avg_all
+
 
 
 -- Постройте запрос, чтобы вычислить 5 авторов с самым большим количеством всех их проданных книг.
@@ -766,3 +761,53 @@ from citydates cd
 join receipts r on r.cityname = cd.cityname and r.date between (cd.date - 29) and cd.date
 group by cd.cityname, cd.date
 order by cityname, date
+
+
+-- NAMED WINDOW
+SELECT CustomerID, SalesOrderID,
+	 FORMAT(MIN(OrderDate) OVER CustomerWin, 'yyyy-MM-dd') AS FirstOrderDate,
+	 FORMAT(MAX(OrderDate) OVER CustomerWin, 'yyyy-MM-dd') AS LastOrderDate,
+	 COUNT(*) OVER CustomerWin OrderCount,
+	 FORMAT(SUM(TotalDue) OVER CustomerWin, 'C') AS TotalAmount
+FROM Sales.SalesOrderHeader
+WINDOW CustomerWin AS (PARTITION BY CustomerID)
+ORDER BY CustomerID, SalesOrderID;
+
+
+-- Query to Return Islands Within a Nonrepeating Integer List
+--CREATE TABLE dbo.integers (integer_id INT NOT NULL);
+--INSERT INTO dbo.integers (integer_id)
+--VALUES (1), (2), (3), (4), (5), (6), (7), (8), (9), (12), (13), (14), (15), (17), (19), (20), (21), (22), (23), (24);
+
+WITH CTE_ISLANDS AS (
+		SELECT integer_id, integer_id - ROW_NUMBER() OVER(ORDER BY integer_id) AS gap
+        FROM dbo.integers)
+SELECT MIN(integer_id) AS island_start,
+       MAX(integer_id) AS island_end
+FROM CTE_ISLANDS
+GROUP BY gap;
+
+
+-- Query to Return Islands Within a Repeating Integer List
+--INSERT INTO dbo.integers (integer_id)
+--VALUES (2), (12), (12), (24);
+
+WITH CTE_ISLANDS AS (
+		SELECT integer_id, integer_id - DENSE_RANK() OVER(ORDER BY integer_id) AS gap
+        FROM dbo.integers)
+SELECT MIN(integer_id) AS island_start,
+       MAX(integer_id) AS island_end,
+	   COUNT(*) AS distinct_value_count
+FROM CTE_ISLANDS
+GROUP BY gap;
+
+
+-- Vice versa. Finding Gaps between Islands
+WITH CTE_GAPS AS (
+    SELECT integer_id, ROW_NUMBER() OVER (ORDER BY integer_id) AS island
+    FROM dbo.integers)
+SELECT ISLAND_END.integer_id + 1 AS gap_starting_value,
+       ISLAND_START.integer_id - 1 AS gap_ending_value,
+       ISLAND_START.integer_id - ISLAND_END.integer_id - 1 AS gap_length
+FROM CTE_GAPS AS ISLAND_END INNER JOIN CTE_GAPS AS ISLAND_START ON ISLAND_START.island = ISLAND_END.island + 1
+WHERE ISLAND_START.integer_id - ISLAND_END.integer_id > 1;
